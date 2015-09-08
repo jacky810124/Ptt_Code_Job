@@ -1,92 +1,42 @@
-var http = require('http');
-
-var request = require('request');
-var cheerio = require('cheerio');
 var async = require('async');
-var Firebase = require('firebase');
-var nodemailer = require('nodemailer');
-var directTransport = require('nodemailer-direct-transport');
 var CronJob = require('cron').CronJob;
 
 
+var request = require('./request.js');
+var database = require('./database.js');
+var email = require('./email.js');
 
-var ref = new Firebase('https://codejob.firebaseio.com');
-var ptt = 'https://www.ptt.cc';
-var codeJobUrl = 'https://www.ptt.cc/bbs/CodeJob/index.html';
+/**
+ * start application
+ */
+function start() {
 
-var transporter = nodemailer.createTransport(directTransport());
-var server = http.createServer(reqHandler);
-server.listen(8080, '127.0.0.1');
-
-
-
-function reqHandler(req, res) {
-    
-    if(req.url === '/')
-        init();
-}
-
-function init() {
-
-    new CronJob('* * * * * *', function () {
-
+    new CronJob('*/15 * * * * *', function () {
 
         async.waterfall([
+
     /**
-     * get latest post on ptt code_job
-     * @param {Function} callback - execute callback after request has done
+     * step1: get latest post url on ptt.cc
+     * @param {Function} callback - the next function
      */
     function (callback) {
 
-                    request(codeJobUrl, function (error, response, body) {
-
-                        if (!error && response.statusCode == 200) {
-
-                            $ = cheerio.load(body);
-
-                            var latestIndex = $('div.r-ent').length - 5;
-                            var latestUrl = $('div.r-ent').eq(latestIndex).find($('div.title>a')).attr('href');
-
-                            console.log('The latest post on ptt is: ' + latestUrl);
-                            callback(null, latestUrl);
-
-                        } else {
-                            console.log(error);
-                            callback(error, 'error: get latest post url');
-                        }
-                    });
+                    request.getLatestPostUrl(callback);
 },
     /**
-     * get latest post on firebase and compare
-     * @param {String}   latestUrl - latest post url
-     * @param {Function} callback  - execute callback after request has done
+     * step2: get the latest url on database, then pass it to next function
+     * @param {String}   latestUrl - the latest post url on ptt
+     * @param {Function} callback  - the callback function
      */
     function (latestUrl, callback) {
-                    console.log('Connecting firebase......');
-                    ref.once('value', function (result) {
 
-
-                        console.log('Latest post url on firebase is: ' + result.val().url);
-
-                        if (result.val().url === latestUrl) {
-
-                            callback(null, latestUrl, true);
-                        } else {
-
-                            callback(null, latestUrl, false);
-                        }
-                    }, function (error) {
-
-                        callback(error, 'error: firebase error');
-                    });
-
+                    database.getLatestPostUrl(callback, latestUrl);
 },
     /**
-     * if you don't have the latest post url, then get the latest url, 
-     * send to your mailbox, and save it on firebase
-     * @param {String}   latestUrl - latest post url 
-     * @param {Boolean}  isLatest  - is the latest?
-     * @param {Function} callback  - execute callback after request has done
+     * step3: does database have the latest post url
+     * @param {String}   latestUrl - the latest post url on ptt
+     * @param {Boolean}  isLatest  does database have the latest post url 
+     * @param {Function} callback  - the callback function
      */
     function (latestUrl, isLatest, callback) {
 
@@ -94,64 +44,49 @@ function init() {
                     if (isLatest) {
 
                         console.log('You do not need to update');
+                        callback(null, false, null, null);
                     } else {
 
                         console.log('Updating latest post');
-
-                        request(ptt + latestUrl, function (error, response, body) {
-
-                            if (!error && response.statusCode == 200) {
-
-                                $ = cheerio.load(body);
-                                var title = $('.article-metaline').text();
-                                var content = $('#main-content').text();
-
-                                var mailOptions = {
-                                    to: 'kang810124@gmail.com',
-                                    from: 'project_code_job@goodideas-campus.com',
-                                    subject: title,
-                                    text: content,
-                                    //                        html: '<b>Hello world ✔</b>' // html body
-                                };
-
-
-                                transporter.sendMail(mailOptions, function (error, info) {
-                                    if (error) {
-
-                                        callback(error, 'error: sending e-mail');
-                                    } else {
-
-                                        console.log('Email has been sent');
-                                        ref.set({
-                                            url: latestUrl
-                                        });
-
-                                        callback(null, 'Send email success');
-                                    }
-                                });
-
-                            } else {
-
-                                callback(error, 'error: updating latest post');
-                            }
-                        });
-
+                        request.getLatestPostContent(callback, latestUrl);
                     }
+},
+    /**
+     * step4: send the post by email
+     * @param {Boolean}  needSend - does the post need to be sent
+     * @param {String}   title    - post title
+     * @param {String}   content  - post content
+     * @param {Function} callback - the callback function
+     */
+    function (needSend, title, content, callback) {
+
+                    if (needSend) {
+
+                        email.sendEmail(callback, title, content)
+                    } else {
+
+                        callback(null, 'You do not need to send email');
+                    }
+
 }],
             /**
-             * all task have done or an error occur
-             * @param {Object} error  - an error object
-             * @param {String} result - last success message
+             * all task have be done
+             * @param {Object} error  - error object
+             * @param {Object} result - resulte object
              */
             function (error, result) {
 
-                if (error)
+                if (error) {
+
                     console.log(error);
-                else
+                } else {
+
                     console.log(result);
+                }
+
             });
-
-
 
     }, null, true, "America/Los_Angeles");
 }
+
+exports.start = start;
