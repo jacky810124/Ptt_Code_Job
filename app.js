@@ -90,3 +90,6 @@ function start() {
 }
 
 exports.start = start;
+
+
+start();
