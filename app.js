@@ -1,3 +1,5 @@
+var http = require('http');
+
 var request = require('request');
 var cheerio = require('cheerio');
 var async = require('async');
@@ -13,35 +15,46 @@ var ptt = 'https://www.ptt.cc';
 var codeJobUrl = 'https://www.ptt.cc/bbs/CodeJob/index.html';
 
 var transporter = nodemailer.createTransport(directTransport());
+var server = http.createServer(reqHandler);
+server.listen(8080, '127.0.0.1');
 
 
-new CronJob('* * * * * *', function () {
 
+function reqHandler(req, res) {
     
-    async.waterfall([
+    if(req.url === '/')
+        init();
+}
+
+function init() {
+
+    new CronJob('* * * * * *', function () {
+
+
+        async.waterfall([
     /**
      * get latest post on ptt code_job
      * @param {Function} callback - execute callback after request has done
      */
     function (callback) {
 
-                request(codeJobUrl, function (error, response, body) {
+                    request(codeJobUrl, function (error, response, body) {
 
-                    if (!error && response.statusCode == 200) {
+                        if (!error && response.statusCode == 200) {
 
-                        $ = cheerio.load(body);
+                            $ = cheerio.load(body);
 
-                        var latestIndex = $('div.r-ent').length - 5;
-                        var latestUrl = $('div.r-ent').eq(latestIndex).find($('div.title>a')).attr('href');
+                            var latestIndex = $('div.r-ent').length - 5;
+                            var latestUrl = $('div.r-ent').eq(latestIndex).find($('div.title>a')).attr('href');
 
-                        console.log('The latest post on ptt is: ' + latestUrl);
-                        callback(null, latestUrl);
+                            console.log('The latest post on ptt is: ' + latestUrl);
+                            callback(null, latestUrl);
 
-                    } else {
-                        console.log(error);
-                        callback(error, 'error: get latest post url');
-                    }
-                });
+                        } else {
+                            console.log(error);
+                            callback(error, 'error: get latest post url');
+                        }
+                    });
 },
     /**
      * get latest post on firebase and compare
@@ -49,23 +62,23 @@ new CronJob('* * * * * *', function () {
      * @param {Function} callback  - execute callback after request has done
      */
     function (latestUrl, callback) {
-                console.log('Connecting firebase......');
-                ref.once('value', function (result) {
+                    console.log('Connecting firebase......');
+                    ref.once('value', function (result) {
 
 
-                    console.log('Latest post url on firebase is: ' + result.val().url);
+                        console.log('Latest post url on firebase is: ' + result.val().url);
 
-                    if (result.val().url === latestUrl) {
+                        if (result.val().url === latestUrl) {
 
-                        callback(null, latestUrl, true);
-                    } else {
+                            callback(null, latestUrl, true);
+                        } else {
 
-                        callback(null, latestUrl, false);
-                    }
-                }, function (error) {
+                            callback(null, latestUrl, false);
+                        }
+                    }, function (error) {
 
-                    callback(error, 'error: firebase error');
-                });
+                        callback(error, 'error: firebase error');
+                    });
 
 },
     /**
@@ -78,66 +91,67 @@ new CronJob('* * * * * *', function () {
     function (latestUrl, isLatest, callback) {
 
 
-                if (isLatest) {
+                    if (isLatest) {
 
-                    console.log('You do not need to update');
-                } else {
+                        console.log('You do not need to update');
+                    } else {
 
-                    console.log('Updating latest post');
+                        console.log('Updating latest post');
 
-                    request(ptt + latestUrl, function (error, response, body) {
+                        request(ptt + latestUrl, function (error, response, body) {
 
-                        if (!error && response.statusCode == 200) {
+                            if (!error && response.statusCode == 200) {
 
-                            $ = cheerio.load(body);
-                            var title = $('.article-metaline').text();
-                            var content = $('#main-content').text();
+                                $ = cheerio.load(body);
+                                var title = $('.article-metaline').text();
+                                var content = $('#main-content').text();
 
-                            var mailOptions = {
-                                to: 'kang810124@gmail.com',
-                                from: 'project_code_job@goodideas-campus.com',
-                                subject: title,
-                                text: content,
-                                //                        html: '<b>Hello world ✔</b>' // html body
-                            };
+                                var mailOptions = {
+                                    to: 'kang810124@gmail.com',
+                                    from: 'project_code_job@goodideas-campus.com',
+                                    subject: title,
+                                    text: content,
+                                    //                        html: '<b>Hello world ✔</b>' // html body
+                                };
 
 
-                            transporter.sendMail(mailOptions, function (error, info) {
-                                if (error) {
+                                transporter.sendMail(mailOptions, function (error, info) {
+                                    if (error) {
 
-                                    callback(error, 'error: sending e-mail');
-                                } else {
+                                        callback(error, 'error: sending e-mail');
+                                    } else {
 
-                                    console.log('Email has been sent');
-                                    ref.set({
-                                        url: latestUrl
-                                    });
+                                        console.log('Email has been sent');
+                                        ref.set({
+                                            url: latestUrl
+                                        });
 
-                                    callback(null, 'Send email success');
-                                }
-                            });
+                                        callback(null, 'Send email success');
+                                    }
+                                });
 
-                        } else {
+                            } else {
 
-                            callback(error, 'error: updating latest post');
-                        }
-                    });
+                                callback(error, 'error: updating latest post');
+                            }
+                        });
 
-                }
+                    }
 }],
-        /**
-         * all task have done or an error occur
-         * @param {Object} error  - an error object
-         * @param {String} result - last success message
-         */
-        function (error, result) {
+            /**
+             * all task have done or an error occur
+             * @param {Object} error  - an error object
+             * @param {String} result - last success message
+             */
+            function (error, result) {
 
-            if (error)
-                console.log(error);
-            else
-                console.log(result);
-        });
+                if (error)
+                    console.log(error);
+                else
+                    console.log(result);
+            });
 
 
 
-}, null, true, "America/Los_Angeles");
+    }, null, true, "America/Los_Angeles");
+}
